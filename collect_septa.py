@@ -25,8 +25,6 @@ HOW TO RUN
    The script appends to septa_realtime_raw.csv in E:\\SEPTA_data\.
    Safe to Ctrl+C and restart — it resumes without duplicating data.
 
-4. When done, upload E:\\SEPTA_data\septa_realtime_raw.csv to Claude.
-
 EXPECTED FILE SIZES
 -------------------
    2  hours  →  ~15  MB   (~80,000  rows)
