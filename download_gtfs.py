@@ -12,7 +12,7 @@ and extracts stop_times.txt into E:\\SEPTA_data\\gtfs\\
 This is required ONCE before running analysis.py with real data.
 Without it, bus and trolley delay computation cannot proceed.
 
-RUN THIS ON YOUR PC (not inside Claude's sandbox):
+RUN THIS ON YOUR PC:
     python download_gtfs.py
 
 WHAT IT DOES
