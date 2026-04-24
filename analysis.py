@@ -1,12 +1,12 @@
 """
 analysis.py
 ===========
-SEPTA Transit Delay Prediction — Deliverable 2
+SEPTA Transit Delay Prediction -- Deliverable 2
 CISC 520 Data Mining and Engineering, Harrisburg University
 
-TWO MODES — auto-detected:
-  REAL DATA   septa_realtime_raw.csv exists (> 100 rows) → real analysis
-  SYNTHETIC   CSV absent or too small → calibrated synthetic fallback
+TWO MODES -- auto-detected:
+  REAL DATA   septa_realtime_raw.csv exists (> 100 rows) -> real analysis
+  SYNTHETIC   CSV absent or too small -> calibrated synthetic fallback
 
 GTFS STATIC JOIN (required for real bus/trolley delay computation)
 ------------------------------------------------------------------
@@ -24,10 +24,10 @@ those modes will be excluded from the analysis with a clear warning.
 
 OUTPUT FILES (written to same folder as this script)
 ----------------------------------------------------
-Global   : fig1–fig5, fig7, fig8
-Rail     : fig_rail_1 – fig_rail_5
-Bus      : fig_bus_1  – fig_bus_5
-Subway/T : fig_subway_1 – fig_subway_5
+Global   : fig1-fig5, fig7, fig8
+Rail     : fig_rail_1 - fig_rail_5
+Bus      : fig_bus_1  - fig_bus_5
+Subway/T : fig_subway_1 - fig_subway_5
 Stats    : stats_report.txt
 
 DEPENDENCIES
@@ -57,27 +57,27 @@ from scipy import stats
 warnings.filterwarnings("ignore")
 
 
-# ═════════════════════════════════════════════════════════════════════════
+# =========================================================================
 # CONFIGURATION
-# ═════════════════════════════════════════════════════════════════════════
+# =========================================================================
 
 RANDOM_SEED     = 42
 N_SYNTHETIC     = 12_000
 OUT_DIR         = os.path.dirname(os.path.abspath(__file__))
 
-# Real-time CSV — check E: portal drive first, then script folder
+# Real-time CSV -- check E: portal drive first, then script folder
 _PORTAL_CSV = r"E:\SEPTA_data\septa_realtime_raw.csv"
 _LOCAL_CSV  = os.path.join(OUT_DIR, "septa_realtime_raw.csv")
 REAL_CSV_PATH = _PORTAL_CSV if os.path.exists(_PORTAL_CSV) else _LOCAL_CSV
 
-# GTFS static feed — bus zip extracted by download_gtfs.py
+# GTFS static feed -- bus zip extracted by download_gtfs.py
 _PORTAL_GTFS = r"E:\SEPTA_data\gtfs"
 _LOCAL_GTFS  = os.path.join(OUT_DIR, "gtfs")
 GTFS_DIR = _PORTAL_GTFS if os.path.exists(_PORTAL_GTFS) else _LOCAL_GTFS
 
-DELAY_MIN_CLIP  = -30.0   # minutes — allow up to 30 min early
-DELAY_MAX_CLIP  =  90.0   # minutes — cap at 90 min late
-DELAY_THRESHOLD =   5.0   # minutes — is_delayed = 1 if delay >= this
+DELAY_MIN_CLIP  = -30.0   # minutes -- allow up to 30 min early
+DELAY_MAX_CLIP  =  90.0   # minutes -- cap at 90 min late
+DELAY_THRESHOLD =   5.0   # minutes -- is_delayed = 1 if delay >= this
 
 # Colours
 NAVY  = "#1F3864"
@@ -106,9 +106,9 @@ plt.rcParams.update({
 })
 
 
-# ═════════════════════════════════════════════════════════════════════════
-# ROUTE → MODE CLASSIFICATION
-# ═════════════════════════════════════════════════════════════════════════
+# =========================================================================
+# ROUTE -> MODE CLASSIFICATION
+# =========================================================================
 
 _RAIL_CODES = {
     "AIR","CHE","CHW","CYN","FOX","LAN","MED",
@@ -135,9 +135,9 @@ def rail_label(route_id: str) -> str:
     return _RAIL_FULL_NAMES.get(str(route_id).strip().upper(), str(route_id))
 
 
-# ═════════════════════════════════════════════════════════════════════════
+# =========================================================================
 # GTFS STATIC SCHEDULE LOADER
-# ═════════════════════════════════════════════════════════════════════════
+# =========================================================================
 
 def _gtfs_time_to_seconds(t: str) -> int:
     """Convert 'HH:MM:SS' (or '25:30:00' for post-midnight) to seconds."""
@@ -193,37 +193,47 @@ def load_gtfs_stop_times() -> pd.DataFrame | None:
                     print(f"  Warning: could not extract from {zp}: {e}")
 
     if stop_times_path is None or not os.path.exists(stop_times_path):
-        print("\n  ⚠  GTFS static feed not found.")
+        print("\n  ?  GTFS static feed not found.")
         print("     Run download_gtfs.py first to enable bus/trolley delay computation.")
         print(f"     Expected location: {GTFS_DIR}\n")
         return None
 
     print(f"  Loading GTFS stop_times from: {stop_times_path}")
-    st = pd.read_csv(stop_times_path, usecols=["trip_id","arrival_time",
-                                                "stop_id","stop_sequence"],
+    # Only need stop_id and arrival_time -- trip_id and stop_sequence not used in join
+    st = pd.read_csv(stop_times_path, usecols=["arrival_time","stop_id"],
                      dtype=str, low_memory=False)
     st["scheduled_arrival_sec"] = st["arrival_time"].apply(_gtfs_time_to_seconds)
     st = st[st["scheduled_arrival_sec"] >= 0]
     st["stop_sequence"] = pd.to_numeric(st["stop_sequence"], errors="coerce")
     print(f"  GTFS stop_times loaded: {len(st):,} rows")
-    return st[["trip_id","stop_id","stop_sequence","scheduled_arrival_sec"]]
+    return st[["stop_id","scheduled_arrival_sec"]]
 
 
-# ═════════════════════════════════════════════════════════════════════════
+# =========================================================================
 # REAL DATA LOADER
-# ═════════════════════════════════════════════════════════════════════════
+# =========================================================================
 
 def load_real_dataset(path: str = REAL_CSV_PATH) -> pd.DataFrame:
     """
     Load and clean the CSV produced by collect_septa.py.
 
     Delay computation:
-      Rail    → explicit arrival_delay_sec  (reliable, from protobuf delay field)
-      Bus/T   → arrival_time_unix − scheduled_arrival_time (from GTFS static join)
-                If GTFS unavailable → bus/trolley rows excluded with warning
+      Rail    -> explicit arrival_delay_sec  (reliable, from protobuf delay field)
+      Bus/T   -> arrival_time_unix ? scheduled_arrival_time (from GTFS static join)
+                If GTFS unavailable -> bus/trolley rows excluded with warning
     """
     print(f"  Loading: {path}")
-    raw = pd.read_csv(path, low_memory=False)
+
+    # Only load columns we actually need -- saves ~60% RAM
+    NEEDED_COLS = [
+        "collected_at", "feed_type", "trip_id", "route_id", "direction_id",
+        "start_date", "stop_id", "stop_sequence",
+        "arrival_delay_sec", "departure_delay_sec",
+        "arrival_time_unix", "departure_time_unix",
+    ]
+    header   = pd.read_csv(path, nrows=0).columns.tolist()
+    use_cols = [c for c in NEEDED_COLS if c in header]
+    raw = pd.read_csv(path, usecols=use_cols, low_memory=False)
     print(f"  Raw rows: {len(raw):,}")
 
     # Parse timestamps
@@ -236,7 +246,7 @@ def load_real_dataset(path: str = REAL_CSV_PATH) -> pd.DataFrame:
         raw[col] = pd.to_numeric(raw[col], errors="coerce")
 
     # Route / mode early (needed for split logic below)
-    # Clean stop_id and trip_id — pandas reads integer-looking floats as "18013.0"
+    # Clean stop_id and trip_id -- pandas reads integer-looking floats as "18013.0"
     raw["stop_id"]  = (raw["stop_id"].astype(str).str.strip()
                         .str.replace(r"\.0$", "", regex=True))
     raw["trip_id"]  = (raw["trip_id"].astype(str).str.strip()
@@ -244,7 +254,7 @@ def load_real_dataset(path: str = REAL_CSV_PATH) -> pd.DataFrame:
     raw["route"]    = raw["route_id"].fillna("Unknown").astype(str).str.strip()
     raw["mode"]     = raw["route"].apply(classify_mode)
 
-    # ── Rail: use explicit delay field ──────────────────────────────────
+    # -- Rail: use explicit delay field ----------------------------------
     rail_mask = raw["mode"] == "Regional Rail"
     raw.loc[rail_mask, "delay_sec"] = (
         raw.loc[rail_mask, "arrival_delay_sec"]
@@ -252,7 +262,7 @@ def load_real_dataset(path: str = REAL_CSV_PATH) -> pd.DataFrame:
     )
     n_rail_explicit = int(rail_mask.sum())
 
-    # ── Bus/Trolley/Subway: GTFS static join ────────────────────────────
+    # -- Bus/Trolley/Subway: GTFS static join ----------------------------
     surface_mask = ~rail_mask
     n_surface    = int(surface_mask.sum())
     n_surface_ok = 0
@@ -268,8 +278,8 @@ def load_real_dataset(path: str = REAL_CSV_PATH) -> pd.DataFrame:
     if gtfs_st is not None and n_surface > 0:
         surface = raw[surface_mask].copy()
 
-        # SEPTA RT trip_ids do NOT match GTFS static trip_ids — different systems.
-        # Join on stop_id only, restricting to scheduled trips within ±2 hours
+        # SEPTA RT trip_ids do NOT match GTFS static trip_ids -- different systems.
+        # Join on stop_id only, restricting to scheduled trips within +/-2 hours
         # of actual arrival time-of-day to avoid matching the wrong trip.
         surface["stop_id_clean"] = (surface["stop_id"].astype(str)
                                      .str.strip()
@@ -292,8 +302,8 @@ def load_real_dataset(path: str = REAL_CSV_PATH) -> pd.DataFrame:
         def unix_to_tod_sec(unix_s):
             # GTFS scheduled times are in Eastern Time
             # Apply ET offset manually (EDT=UTC-4, EST=UTC-5)
-            # Use -4 (EDT) for April–October, -5 (EST) for November–March
-            # Simple approach: subtract 4h offset (EDT) — close enough for matching
+            # Use -4 (EDT) for April-October, -5 (EST) for November-March
+            # Simple approach: subtract 4h offset (EDT) -- close enough for matching
             ET_OFFSET_SEC = 4 * 3600  # EDT offset (April = summer time)
             et_unix = unix_s - ET_OFFSET_SEC
             dt = pd.to_datetime(et_unix, unit="s", utc=False)
@@ -314,7 +324,7 @@ def load_real_dataset(path: str = REAL_CSV_PATH) -> pd.DataFrame:
             how="left",
         )
 
-        # Compute time difference — only keep candidates within ±2 hours (7200 sec)
+        # Compute time difference -- only keep candidates within +/-2 hours (7200 sec)
         merged["tod_diff"] = (merged["scheduled_arrival_sec"]
                                - merged["actual_tod_sec"]).abs()
         merged = merged[merged["tod_diff"] <= 7200].copy()
@@ -327,22 +337,22 @@ def load_real_dataset(path: str = REAL_CSV_PATH) -> pd.DataFrame:
         else:
             merged = pd.DataFrame()
 
-        # Compute delay = actual_unix − scheduled_unix
+        # Compute delay = actual_unix ? scheduled_unix
         if not merged.empty:
             # ET midnight in unix seconds.
             # pd.to_datetime(date_str, utc=False) returns datetime64[us] (microseconds)
-            # → astype('int64') // 1_000_000 gives seconds (NOT // 1_000_000_000)
-            ET_OFFSET_SEC     = 4 * 3600  # EDT (April–October)
+            # -> astype('int64') // 1_000_000 gives seconds (NOT // 1_000_000_000)
+            ET_OFFSET_SEC     = 4 * 3600  # EDT (April-October)
             collected_et_date = collected_et.dt.strftime("%Y%m%d")
             et_midnight_unix  = (
                 pd.to_datetime(collected_et_date.reindex(merged.index),
                                format="%Y%m%d", utc=False)
-                .astype("int64") // 1_000_000   # microseconds → seconds
-                + ET_OFFSET_SEC                  # shift midnight ET → UTC
+                .astype("int64") // 1_000_000   # microseconds -> seconds
+                + ET_OFFSET_SEC                  # shift midnight ET -> UTC
             )
             merged["scheduled_unix"]  = et_midnight_unix + merged["scheduled_arrival_sec"]
             merged["delay_sec_gtfs"]  = actual_unix.reindex(merged.index) - merged["scheduled_unix"]
-            # Sanity-clip: discard values outside ±3 hours
+            # Sanity-clip: discard values outside +/-3 hours
             merged.loc[merged["delay_sec_gtfs"].abs() > 10800, "delay_sec_gtfs"] = np.nan
             delay_series = merged["delay_sec_gtfs"].reindex(surface.index)
         else:
@@ -352,10 +362,10 @@ def load_real_dataset(path: str = REAL_CSV_PATH) -> pd.DataFrame:
         print(f"  GTFS join: {n_surface_ok:,}/{n_surface:,} bus/trolley/subway rows matched")
 
         if n_surface_ok == 0:
-            print("  ⚠ Zero matches — check stop_id format or GTFS feed coverage")
+            print("  ? Zero matches -- check stop_id format or GTFS feed coverage")
 
     elif gtfs_st is None and n_surface > 0:
-        print(f"  Skipping {n_surface:,} bus/trolley rows — GTFS feed unavailable")
+        print(f"  Skipping {n_surface:,} bus/trolley rows -- GTFS feed unavailable")
 
     # Drop rows with no delay at all
     raw = raw.dropna(subset=["delay_sec"]).copy()
@@ -365,7 +375,7 @@ def load_real_dataset(path: str = REAL_CSV_PATH) -> pd.DataFrame:
     print(f"    Rail (explicit delay)     : {n_rail_explicit:,}")
     print(f"    Bus/Trolley (GTFS join)   : {n_surface_ok:,}")
 
-    # Temporal features — use Eastern Time (EDT = UTC-4), not UTC
+    # Temporal features -- use Eastern Time (EDT = UTC-4), not UTC
     # Without this, midnight ET appears as 4 AM on the next UTC day,
     # causing wrong hour labels and day-of-week misclassification.
     collected_et       = raw["collected_at"] - pd.Timedelta(hours=4)
@@ -394,8 +404,8 @@ def load_real_dataset(path: str = REAL_CSV_PATH) -> pd.DataFrame:
     )
 
     # Deduplicate per poll window
-    # Rail: stop_id is NaN (trip-level delay) → dedup on trip_id + poll_window
-    # Bus/Trolley: stop_id is populated → dedup on trip_id + stop_id + poll_window
+    # Rail: stop_id is NaN (trip-level delay) -> dedup on trip_id + poll_window
+    # Bus/Trolley: stop_id is populated -> dedup on trip_id + stop_id + poll_window
     raw["poll_window"] = raw["collected_at"].dt.floor("2min")
 
     rail_rows    = raw[raw["mode"] == "Regional Rail"]
@@ -417,9 +427,9 @@ def load_real_dataset(path: str = REAL_CSV_PATH) -> pd.DataFrame:
     return raw[[c for c in cols if c in raw.columns]].reset_index(drop=True)
 
 
-# ═════════════════════════════════════════════════════════════════════════
+# =========================================================================
 # SYNTHETIC DATASET (fallback)
-# ═════════════════════════════════════════════════════════════════════════
+# =========================================================================
 
 def generate_synthetic_dataset(n: int = N_SYNTHETIC, seed: int = RANDOM_SEED) -> pd.DataFrame:
     rng = np.random.default_rng(seed)
@@ -469,9 +479,9 @@ def generate_synthetic_dataset(n: int = N_SYNTHETIC, seed: int = RANDOM_SEED) ->
     return df
 
 
-# ═════════════════════════════════════════════════════════════════════════
+# =========================================================================
 # AUTO-SELECTOR
-# ═════════════════════════════════════════════════════════════════════════
+# =========================================================================
 
 def get_dataset() -> tuple:
     if os.path.exists(REAL_CSV_PATH):
@@ -479,17 +489,17 @@ def get_dataset() -> tuple:
             lines = sum(1 for _ in open(REAL_CSV_PATH)) - 1
             if lines > 100:
                 return load_real_dataset(), "real"
-            print(f"  CSV has only {lines} rows — using synthetic.")
+            print(f"  CSV has only {lines} rows -- using synthetic.")
         except Exception as e:
-            print(f"  Could not load real CSV ({e}) — using synthetic.")
+            print(f"  Could not load real CSV ({e}) -- using synthetic.")
     else:
-        print(f"  CSV not found — using synthetic.")
+        print(f"  CSV not found -- using synthetic.")
     return generate_synthetic_dataset(), "synthetic"
 
 
-# ═════════════════════════════════════════════════════════════════════════
+# =========================================================================
 # STATISTICS PRINTOUT + LOG
-# ═════════════════════════════════════════════════════════════════════════
+# =========================================================================
 
 def print_stats(df: pd.DataFrame, source: str) -> None:
     buf = io.StringIO()
@@ -507,7 +517,7 @@ def print_stats(df: pd.DataFrame, source: str) -> None:
     out(f"{'='*62}")
     for label, val in [
         ("Mean",f"{d.mean():.2f} min"),("Median",f"{d.median():.2f} min"),
-        ("Std dev",f"{d.std():.2f} min"),("Variance",f"{d.var(ddof=1):.2f} min²"),
+        ("Std dev",f"{d.std():.2f} min"),("Variance",f"{d.var(ddof=1):.2f} min2"),
         ("Min",f"{d.min():.2f} min"),("Q1",f"{q1:.2f} min"),
         ("Q3",f"{q3:.2f} min"),("Max",f"{d.max():.2f} min"),
         ("IQR",f"{iqr:.2f} min"),
@@ -539,7 +549,7 @@ def print_stats(df: pd.DataFrame, source: str) -> None:
         sub = df[df["mode"]==mode_name]
         if len(sub) < 5: continue
         d2 = sub["delay_minutes"]
-        out(f"\n  ── {mode_label} (n={len(sub):,}) ──")
+        out(f"\n  -- {mode_label} (n={len(sub):,}) --")
         out(f"    Mean         : {d2.mean():.2f} min")
         out(f"    Median       : {d2.median():.2f} min")
         out(f"    Std dev      : {d2.std():.2f} min")
@@ -567,9 +577,9 @@ def print_stats(df: pd.DataFrame, source: str) -> None:
     print(f"  [OK] stats_report.txt")
 
 
-# ═════════════════════════════════════════════════════════════════════════
+# =========================================================================
 # HELPERS
-# ═════════════════════════════════════════════════════════════════════════
+# =========================================================================
 
 def _save(name):
     plt.tight_layout()
@@ -586,9 +596,9 @@ def _vline(ax, v=DELAY_THRESHOLD):
                label=f"{v:.0f}-min threshold")
 
 
-# ═════════════════════════════════════════════════════════════════════════
-# GLOBAL OVERVIEW FIGURES  (fig1 – fig5, fig7, fig8)
-# ═════════════════════════════════════════════════════════════════════════
+# =========================================================================
+# GLOBAL OVERVIEW FIGURES  (fig1 - fig5, fig7, fig8)
+# =========================================================================
 
 def fig1_histogram(df):
     fig, ax = plt.subplots(figsize=(9,5))
@@ -601,7 +611,7 @@ def fig1_histogram(df):
                label=f"{DELAY_THRESHOLD:.0f}-min threshold")
     ax.set_xlabel("Delay (minutes)", fontsize=12)
     ax.set_ylabel("Number of Stop Events", fontsize=12)
-    ax.set_title("Distribution of SEPTA Transit Delays — Full Network",
+    ax.set_title("Distribution of SEPTA Transit Delays -- Full Network",
                  fontsize=14, fontweight="bold", color=NAVY)
     ax.legend(fontsize=10)
     _save("fig1_delay_hist.png")
@@ -617,7 +627,7 @@ def fig2_hourly_line(df):
     ax.set_xticks(hrs)
     ax.set_xticklabels([f"{x}:00" for x in hrs], rotation=45, ha="right", fontsize=9)
     ax.set_xlabel("Hour of Day", fontsize=12); ax.set_ylabel("Mean Delay (minutes)", fontsize=12)
-    ax.set_title("Mean Delay by Hour of Day — Full Network\n(shaded = ±1 SE)",
+    ax.set_title("Mean Delay by Hour of Day -- Full Network\n(shaded = +/-1 SE)",
                  fontsize=14, fontweight="bold", color=NAVY)
     ax.legend(fontsize=10); _save("fig2_hourly_delay.png")
 
@@ -646,7 +656,7 @@ def fig4_heatmap_dow_hour(df):
     ax.set_xticklabels([f"{c}:00" for c in pivot.columns],
                        rotation=45, ha="right", fontsize=8)
     ax.set_xlabel("Hour of Day",fontsize=11); ax.set_ylabel("Day of Week",fontsize=11)
-    ax.set_title("Delay Rate (%) by Hour × Day of Week — Full Network",
+    ax.set_title("Delay Rate (%) by Hour x Day of Week -- Full Network",
                  fontsize=14, fontweight="bold", color=NAVY)
     _save("fig4_heatmap.png")
 
@@ -659,7 +669,7 @@ def fig5_correlation_matrix(df):
     sns.heatmap(corr, ax=ax, mask=mask, annot=True, fmt=".2f", cmap="coolwarm",
                 center=0, vmin=-1, vmax=1, square=True, linewidths=0.5,
                 linecolor="white", cbar_kws={"shrink":0.8})
-    ax.set_title("Feature Correlation Matrix — Full Network",
+    ax.set_title("Feature Correlation Matrix -- Full Network",
                  fontsize=14, fontweight="bold", color=NAVY)
     _save("fig5_corr_heatmap.png")
 
@@ -695,9 +705,9 @@ def fig8_scatter(df, sample_n=2_000):
     ax.legend(fontsize=10); _save("fig8_scatter.png")
 
 
-# ═════════════════════════════════════════════════════════════════════════
-# REGIONAL RAIL FIGURES  (fig_rail_1 – fig_rail_5)
-# ═════════════════════════════════════════════════════════════════════════
+# =========================================================================
+# REGIONAL RAIL FIGURES  (fig_rail_1 - fig_rail_5)
+# =========================================================================
 
 def _rail(df): return df[df["mode"]=="Regional Rail"].copy()
 
@@ -719,7 +729,7 @@ def fig_rail_1(df):
     ax.legend(handles=[mpatches.Patch(color=RED,label="Above 5-min threshold"),
                        mpatches.Patch(color=NAVY,label="Below 5-min threshold")],fontsize=9)
     ax.set_xlabel("Mean Delay (minutes)",fontsize=12)
-    ax.set_title("Regional Rail — Mean Delay by Line (95% CI)",
+    ax.set_title("Regional Rail -- Mean Delay by Line (95% CI)",
                  fontsize=13, fontweight="bold", color=NAVY)
     _save("fig_rail_1.png")
 
@@ -735,7 +745,7 @@ def fig_rail_2(df):
     ax.set_xticklabels([f"{c}:00" for c in pivot.columns],
                        rotation=45,ha="right",fontsize=8)
     ax.set_xlabel("Hour of Day",fontsize=11); ax.set_ylabel("Rail Line",fontsize=11)
-    ax.set_title("Regional Rail — Delay Rate (%) by Hour × Line",
+    ax.set_title("Regional Rail -- Delay Rate (%) by Hour x Line",
                  fontsize=13,fontweight="bold",color=NAVY)
     _save("fig_rail_2.png")
 
@@ -750,14 +760,14 @@ def fig_rail_3(df):
     x = np.arange(len(grp)); w = 0.35
     fig, ax = plt.subplots(figsize=(12,max(5,len(grp)*0.6)))
     if "Inbound" in grp:
-        ax.bar(x-w/2,grp["Inbound"],w,label="Inbound (→ Center City)",
+        ax.bar(x-w/2,grp["Inbound"],w,label="Inbound (-> Center City)",
                color=NAVY,alpha=0.85,edgecolor="white")
     if "Outbound" in grp:
-        ax.bar(x+w/2,grp["Outbound"],w,label="Outbound (← Center City)",
+        ax.bar(x+w/2,grp["Outbound"],w,label="Outbound (? Center City)",
                color=LBLUE,alpha=0.85,edgecolor="white")
     ax.set_xticks(x); ax.set_xticklabels(grp.index,rotation=30,ha="right",fontsize=9)
     _hline(ax); ax.set_ylabel("Mean Delay (minutes)",fontsize=12)
-    ax.set_title("Regional Rail — Inbound vs. Outbound Mean Delay by Line",
+    ax.set_title("Regional Rail -- Inbound vs. Outbound Mean Delay by Line",
                  fontsize=13,fontweight="bold",color=NAVY)
     ax.legend(fontsize=10); _save("fig_rail_3.png")
 
@@ -775,7 +785,7 @@ def fig_rail_4(df):
         patch.set_facecolor(cmap(i/max(len(order),1)*0.6+0.1)); patch.set_alpha(0.9)
     ax.set_xticklabels(order,rotation=30,ha="right",fontsize=9)
     _hline(ax); ax.set_ylabel("Delay (minutes)",fontsize=12)
-    ax.set_title("Regional Rail — Delay Distribution by Line (sorted by mean)",
+    ax.set_title("Regional Rail -- Delay Distribution by Line (sorted by mean)",
                  fontsize=13,fontweight="bold",color=NAVY)
     ax.legend(fontsize=10); _save("fig_rail_4.png")
 
@@ -795,20 +805,20 @@ def fig_rail_5(df):
     ax.set_xticks(hrs)
     ax.set_xticklabels([f"{h}:00" for h in hrs],rotation=45,ha="right",fontsize=8)
     ax.set_xlabel("Hour of Day",fontsize=12); ax.set_ylabel("Mean Delay (minutes)",fontsize=12)
-    ax.set_title("Regional Rail — Mean Delay by Hour per Line (top 8)",
+    ax.set_title("Regional Rail -- Mean Delay by Hour per Line (top 8)",
                  fontsize=13,fontweight="bold",color=NAVY)
     ax.legend(fontsize=8,ncol=2,loc="upper right"); _save("fig_rail_5.png")
 
 
-# ═════════════════════════════════════════════════════════════════════════
-# BUS FIGURES  (fig_bus_1 – fig_bus_5)
-# ═════════════════════════════════════════════════════════════════════════
+# =========================================================================
+# BUS FIGURES  (fig_bus_1 - fig_bus_5)
+# =========================================================================
 
 def _bus(df): return df[df["mode"]=="Bus"].copy()
 
 def fig_bus_1(df):
     bus = _bus(df)
-    if bus.empty: print("  [SKIP] fig_bus_1 — no bus data"); return
+    if bus.empty: print("  [SKIP] fig_bus_1 -- no bus data"); return
     top = bus["route"].value_counts().nlargest(20).index
     grp = (bus[bus["route"].isin(top)].groupby("route")["delay_minutes"]
             .agg(["mean","count"]).reset_index().sort_values("mean",ascending=True))
@@ -822,13 +832,13 @@ def fig_bus_1(df):
     ax.legend(handles=[mpatches.Patch(color=RED,label="Above 5-min threshold"),
                        mpatches.Patch(color=BLUE,label="Below 5-min threshold")],fontsize=9)
     ax.set_xlabel("Mean Delay (minutes)",fontsize=12)
-    ax.set_title("Bus — Mean Delay by Route (top 20 by volume)",
+    ax.set_title("Bus -- Mean Delay by Route (top 20 by volume)",
                  fontsize=13,fontweight="bold",color=NAVY)
     _save("fig_bus_1.png")
 
 def fig_bus_2(df):
     bus = _bus(df)
-    if bus.empty: print("  [SKIP] fig_bus_2 — no bus data"); return
+    if bus.empty: print("  [SKIP] fig_bus_2 -- no bus data"); return
     wd = bus[bus["is_weekend"]==0].groupby("hour")["delay_minutes"].mean()
     we = bus[bus["is_weekend"]==1].groupby("hour")["delay_minutes"].mean()
     fig, ax = plt.subplots(figsize=(11,5))
@@ -838,13 +848,13 @@ def fig_bus_2(df):
     hrs = sorted(bus["hour"].unique())
     ax.set_xticks(hrs); ax.set_xticklabels([f"{h}:00" for h in hrs],rotation=45,ha="right",fontsize=9)
     ax.set_xlabel("Hour of Day",fontsize=12); ax.set_ylabel("Mean Delay (minutes)",fontsize=12)
-    ax.set_title("Bus — Mean Delay by Hour: Weekday vs. Weekend",
+    ax.set_title("Bus -- Mean Delay by Hour: Weekday vs. Weekend",
                  fontsize=13,fontweight="bold",color=NAVY)
     ax.legend(fontsize=11); _save("fig_bus_2.png")
 
 def fig_bus_3(df):
     bus = _bus(df)
-    if bus.empty: print("  [SKIP] fig_bus_3 — no bus data"); return
+    if bus.empty: print("  [SKIP] fig_bus_3 -- no bus data"); return
     top_routes = (bus.groupby("route")["delay_minutes"].mean()
                   .sort_values(ascending=False).head(10).index.tolist())
     groups = [bus[bus["route"]==r]["delay_minutes"].values for r in top_routes]
@@ -855,13 +865,13 @@ def fig_bus_3(df):
     for patch in bp["boxes"]: patch.set_facecolor(BLUE); patch.set_alpha(0.8)
     ax.set_xticklabels([f"Route {r}" for r in top_routes],rotation=30,ha="right",fontsize=9)
     _hline(ax); ax.set_ylabel("Delay (minutes)",fontsize=12)
-    ax.set_title("Bus — Delay Distribution: Top 10 Most-Delayed Routes",
+    ax.set_title("Bus -- Delay Distribution: Top 10 Most-Delayed Routes",
                  fontsize=13,fontweight="bold",color=NAVY)
     ax.legend(fontsize=10); _save("fig_bus_3.png")
 
 def fig_bus_4(df):
     bus = _bus(df)
-    if bus.empty: print("  [SKIP] fig_bus_4 — no bus data"); return
+    if bus.empty: print("  [SKIP] fig_bus_4 -- no bus data"); return
     dlabels = {0:"Mon",1:"Tue",2:"Wed",3:"Thu",4:"Fri",5:"Sat",6:"Sun"}
     pivot = bus.pivot_table(values="is_delayed",index="day_of_week",
                              columns="hour",aggfunc="mean")*100
@@ -871,13 +881,13 @@ def fig_bus_4(df):
                 linecolor="white",cbar_kws={"label":"Delay Rate (%)","shrink":0.8})
     ax.set_xticklabels([f"{c}:00" for c in pivot.columns],rotation=45,ha="right",fontsize=8)
     ax.set_xlabel("Hour of Day",fontsize=11); ax.set_ylabel("Day of Week",fontsize=11)
-    ax.set_title("Bus — Delay Rate (%) by Hour × Day of Week",
+    ax.set_title("Bus -- Delay Rate (%) by Hour x Day of Week",
                  fontsize=13,fontweight="bold",color=NAVY)
     _save("fig_bus_4.png")
 
 def fig_bus_5(df):
     bus = _bus(df)
-    if bus.empty: print("  [SKIP] fig_bus_5 — no bus data"); return
+    if bus.empty: print("  [SKIP] fig_bus_5 -- no bus data"); return
     top = bus["route"].value_counts().nlargest(20).index
     ontime = (bus[bus["route"].isin(top)].groupby("route")["is_delayed"]
               .apply(lambda x: 100*(1-x.mean())).reset_index()
@@ -890,23 +900,23 @@ def fig_bus_5(df):
     for bar,(_, row) in zip(bars,ontime.iterrows()):
         ax.text(row["ontime_pct"]+0.5,bar.get_y()+bar.get_height()/2,
                 f"{row['ontime_pct']:.1f}%",va="center",fontsize=8.5)
-    ax.legend(handles=[mpatches.Patch(color=GREEN,label="≥50% on-time"),
+    ax.legend(handles=[mpatches.Patch(color=GREEN,label=">=50% on-time"),
                        mpatches.Patch(color=RED,label="<50% on-time")],fontsize=9)
     ax.set_xlabel("On-Time Rate (%)",fontsize=12)
-    ax.set_title("Bus — On-Time Rate (%) by Route (top 20 by volume)",
+    ax.set_title("Bus -- On-Time Rate (%) by Route (top 20 by volume)",
                  fontsize=13,fontweight="bold",color=NAVY)
     _save("fig_bus_5.png")
 
 
-# ═════════════════════════════════════════════════════════════════════════
-# SUBWAY & TROLLEY FIGURES  (fig_subway_1 – fig_subway_5)
-# ═════════════════════════════════════════════════════════════════════════
+# =========================================================================
+# SUBWAY & TROLLEY FIGURES  (fig_subway_1 - fig_subway_5)
+# =========================================================================
 
 def _st(df): return df[df["mode"].isin(["Subway","Trolley"])].copy()
 
 def fig_subway_1(df):
     st = _st(df)
-    if st.empty: print("  [SKIP] fig_subway_1 — no subway/trolley data"); return
+    if st.empty: print("  [SKIP] fig_subway_1 -- no subway/trolley data"); return
     subway_r  = sorted(st[st["mode"]=="Subway"]["route"].unique())
     trolley_r = sorted(st[st["mode"]=="Trolley"]["route"].unique())
     order  = subway_r + trolley_r
@@ -921,7 +931,7 @@ def fig_subway_1(df):
         patch.set_facecolor(color); patch.set_alpha(0.85)
     ax.set_xticklabels(order,rotation=30,ha="right",fontsize=9)
     _hline(ax); ax.set_ylabel("Delay (minutes)",fontsize=12)
-    ax.set_title("Subway & Trolley — Delay Distribution by Route",
+    ax.set_title("Subway & Trolley -- Delay Distribution by Route",
                  fontsize=13,fontweight="bold",color=NAVY)
     ax.legend(handles=[mpatches.Patch(color=MODE_COLORS["Subway"],label="Subway"),
                        mpatches.Patch(color=MODE_COLORS["Trolley"],label="Trolley")],fontsize=10)
@@ -929,7 +939,7 @@ def fig_subway_1(df):
 
 def fig_subway_2(df):
     st = _st(df)
-    if st.empty: print("  [SKIP] fig_subway_2 — no subway/trolley data"); return
+    if st.empty: print("  [SKIP] fig_subway_2 -- no subway/trolley data"); return
     grp = (st.groupby(["route","mode"])["delay_minutes"]
              .agg(["mean","count"]).reset_index().sort_values("mean",ascending=True))
     colors = [MODE_COLORS.get(m,GRAY) for m in grp["mode"]]
@@ -942,13 +952,13 @@ def fig_subway_2(df):
     ax.legend(handles=[mpatches.Patch(color=MODE_COLORS["Subway"],label="Subway"),
                        mpatches.Patch(color=MODE_COLORS["Trolley"],label="Trolley")],fontsize=10)
     ax.set_xlabel("Mean Delay (minutes)",fontsize=12)
-    ax.set_title("Subway & Trolley — Mean Delay by Route",
+    ax.set_title("Subway & Trolley -- Mean Delay by Route",
                  fontsize=13,fontweight="bold",color=NAVY)
     _save("fig_subway_2.png")
 
 def fig_subway_3(df):
     st = _st(df)
-    if st.empty: print("  [SKIP] fig_subway_3 — no subway/trolley data"); return
+    if st.empty: print("  [SKIP] fig_subway_3 -- no subway/trolley data"); return
     fig, ax = plt.subplots(figsize=(11,5))
     for mode_name, color, marker in [("Subway",GREEN,"o"),("Trolley",GOLD,"s")]:
         sub = st[st["mode"]==mode_name].groupby("hour")["delay_minutes"].mean()
@@ -958,13 +968,13 @@ def fig_subway_3(df):
     hrs = sorted(st["hour"].unique())
     ax.set_xticks(hrs); ax.set_xticklabels([f"{h}:00" for h in hrs],rotation=45,ha="right",fontsize=9)
     ax.set_xlabel("Hour of Day",fontsize=12); ax.set_ylabel("Mean Delay (minutes)",fontsize=12)
-    ax.set_title("Subway vs. Trolley — Mean Delay by Hour of Day",
+    ax.set_title("Subway vs. Trolley -- Mean Delay by Hour of Day",
                  fontsize=13,fontweight="bold",color=NAVY)
     ax.legend(fontsize=11); _save("fig_subway_3.png")
 
 def fig_subway_4(df):
     st = _st(df)
-    if st.empty: print("  [SKIP] fig_subway_4 — no subway/trolley data"); return
+    if st.empty: print("  [SKIP] fig_subway_4 -- no subway/trolley data"); return
     grp = (st.groupby(["mode","is_weekend"])["delay_minutes"]
              .mean().unstack("is_weekend")
              .rename(columns={0:"Weekday",1:"Weekend"}))
@@ -979,13 +989,13 @@ def fig_subway_4(df):
                alpha=0.45, edgecolor="white", hatch="//")
     ax.set_xticks(x); ax.set_xticklabels(modes,fontsize=11)
     _hline(ax); ax.set_ylabel("Mean Delay (minutes)",fontsize=12)
-    ax.set_title("Subway & Trolley — Weekday vs. Weekend Mean Delay",
+    ax.set_title("Subway & Trolley -- Weekday vs. Weekend Mean Delay",
                  fontsize=13,fontweight="bold",color=NAVY)
     ax.legend(fontsize=10); _save("fig_subway_4.png")
 
 def fig_subway_5(df):
     st = _st(df)
-    if st.empty: print("  [SKIP] fig_subway_5 — no subway/trolley data"); return
+    if st.empty: print("  [SKIP] fig_subway_5 -- no subway/trolley data"); return
     pivot = st.pivot_table(values="is_delayed",index="route",
                             columns="hour",aggfunc="mean")*100
     fig, ax = plt.subplots(figsize=(13,max(3,len(pivot)*0.55)))
@@ -994,17 +1004,17 @@ def fig_subway_5(df):
                 cbar_kws={"label":"Delay Rate (%)","shrink":0.7})
     ax.set_xticklabels([f"{c}:00" for c in pivot.columns],rotation=45,ha="right",fontsize=8)
     ax.set_xlabel("Hour of Day",fontsize=11); ax.set_ylabel("Route",fontsize=11)
-    ax.set_title("Subway & Trolley — Delay Rate (%) by Hour × Route",
+    ax.set_title("Subway & Trolley -- Delay Rate (%) by Hour x Route",
                  fontsize=13,fontweight="bold",color=NAVY)
     _save("fig_subway_5.png")
 
 
-# ═════════════════════════════════════════════════════════════════════════
+# =========================================================================
 # MAIN
-# ═════════════════════════════════════════════════════════════════════════
+# =========================================================================
 
 def main():
-    print("\nSEPTA Deliverable 2 — analysis.py")
+    print("\nSEPTA Deliverable 2 -- analysis.py")
     print("----------------------------------")
 
     print("Step 1: Loading dataset ...")
@@ -1039,7 +1049,7 @@ def main():
     n_modes_with_data = sum(len(df[df["mode"]==m])>0
                             for m in ["Regional Rail","Bus","Subway","Trolley"])
     print(f"\n{'='*52}")
-    print(f"  Done — 22 figures + stats_report.txt")
+    print(f"  Done -- 22 figures + stats_report.txt")
     print(f"  Source : {source.upper()}")
     print(f"  Modes  : {n_modes_with_data}/4 have data")
     print(f"  Output : {OUT_DIR}")
