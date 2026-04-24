@@ -4,6 +4,10 @@ analysis.py
 SEPTA Transit Delay Prediction — Deliverable 2
 CISC 520 Data Mining and Engineering, Harrisburg University
 
+TWO MODES — auto-detected:
+  REAL DATA   septa_realtime_raw.csv exists (> 100 rows) → real analysis
+  SYNTHETIC   CSV absent or too small → calibrated synthetic fallback
+
 GTFS STATIC JOIN (required for real bus/trolley delay computation)
 ------------------------------------------------------------------
 Bus/trolley rows in the real-time feed only report arrival_time_unix
@@ -17,6 +21,14 @@ This saves  E:\\SEPTA_data\\gtfs\\google_bus.zip  (extracted automatically).
 
 Without the GTFS static feed, bus/trolley delays cannot be computed and
 those modes will be excluded from the analysis with a clear warning.
+
+OUTPUT FILES (written to same folder as this script)
+----------------------------------------------------
+Global   : fig1–fig5, fig7, fig8
+Rail     : fig_rail_1 – fig_rail_5
+Bus      : fig_bus_1  – fig_bus_5
+Subway/T : fig_subway_1 – fig_subway_5
+Stats    : stats_report.txt
 
 DEPENDENCIES
 ------------
@@ -353,10 +365,13 @@ def load_real_dataset(path: str = REAL_CSV_PATH) -> pd.DataFrame:
     print(f"    Rail (explicit delay)     : {n_rail_explicit:,}")
     print(f"    Bus/Trolley (GTFS join)   : {n_surface_ok:,}")
 
-    # Temporal features
-    raw["hour"]        = raw["collected_at"].dt.hour
-    raw["day_of_week"] = raw["collected_at"].dt.dayofweek
-    raw["month"]       = raw["collected_at"].dt.month
+    # Temporal features — use Eastern Time (EDT = UTC-4), not UTC
+    # Without this, midnight ET appears as 4 AM on the next UTC day,
+    # causing wrong hour labels and day-of-week misclassification.
+    collected_et       = raw["collected_at"] - pd.Timedelta(hours=4)
+    raw["hour"]        = collected_et.dt.hour
+    raw["day_of_week"] = collected_et.dt.dayofweek
+    raw["month"]       = collected_et.dt.month
     raw["is_weekend"]  = (raw["day_of_week"] >= 5).astype(int)
 
     # Direction
