@@ -204,7 +204,6 @@ def load_gtfs_stop_times() -> pd.DataFrame | None:
                      dtype=str, low_memory=False)
     st["scheduled_arrival_sec"] = st["arrival_time"].apply(_gtfs_time_to_seconds)
     st = st[st["scheduled_arrival_sec"] >= 0]
-    st["stop_sequence"] = pd.to_numeric(st["stop_sequence"], errors="coerce")
     print(f"  GTFS stop_times loaded: {len(st):,} rows")
     return st[["stop_id","scheduled_arrival_sec"]]
 
@@ -316,26 +315,35 @@ def load_real_dataset(path: str = REAL_CSV_PATH) -> pd.DataFrame:
             surface["collected_at"].astype("int64") // 1_000_000_000)
         surface["actual_tod_sec"] = unix_to_tod_sec(actual_unix)
 
-        # Merge on stop_id
-        merged = surface.merge(
-            gtfs_st[["stop_id","scheduled_arrival_sec"]],
-            left_on="stop_id_clean",
-            right_on="stop_id",
-            how="left",
-        )
+        # Chunked merge to avoid OOM
+        # Full merge of 500K surface x 2.4M GTFS rows blows RAM.
+        # Process surface in 50K-row chunks; each chunk merges independently.
+        gtfs_lookup = gtfs_st[["stop_id","scheduled_arrival_sec"]].copy()
+        CHUNK_SIZE  = 50_000
+        n_chunks    = (len(surface) - 1) // CHUNK_SIZE + 1
+        print(f"  Merging in {n_chunks} chunks of {CHUNK_SIZE:,} rows...")
+        best_chunks = []
 
-        # Compute time difference -- only keep candidates within +/-2 hours (7200 sec)
-        merged["tod_diff"] = (merged["scheduled_arrival_sec"]
-                               - merged["actual_tod_sec"]).abs()
-        merged = merged[merged["tod_diff"] <= 7200].copy()
+        for i in range(0, len(surface), CHUNK_SIZE):
+            chunk = surface.iloc[i:i+CHUNK_SIZE].copy()
+            m = chunk.merge(gtfs_lookup, left_on="stop_id_clean",
+                            right_on="stop_id", how="left")
+            m["tod_diff"] = (m["scheduled_arrival_sec"]
+                              - m["actual_tod_sec"]).abs()
+            m = m[m["tod_diff"] <= 7200]
+            if not m.empty:
+                best_idx = m.groupby("_row_idx")["tod_diff"].idxmin()
+                m = m.loc[best_idx.dropna().astype(int)].set_index("_row_idx")
+                best_chunks.append(m[[
+                    "scheduled_arrival_sec","tod_diff"
+                ]])
+            del m
 
-        # Keep the closest match per original surface row
-        if not merged.empty:
-            best_idx = merged.groupby("_row_idx")["tod_diff"].idxmin()
-            merged   = merged.loc[best_idx.dropna().astype(int)].copy()
-            merged   = merged.set_index("_row_idx")
+        if best_chunks:
+            merged = pd.concat(best_chunks)
         else:
             merged = pd.DataFrame()
+        del best_chunks
 
         # Compute delay = actual_unix ? scheduled_unix
         if not merged.empty:
