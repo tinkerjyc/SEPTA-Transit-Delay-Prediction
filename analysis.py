@@ -337,6 +337,8 @@ def load_real_dataset(path: str = REAL_CSV_PATH) -> pd.DataFrame:
                 best_chunks.append(m[[
                     "scheduled_arrival_sec","tod_diff"
                 ]])
+                # Note: collected_at and arrival_time_unix are retrieved
+                # from surface via reindex after concat -- no need to store here
             del m
 
         if best_chunks:
@@ -345,22 +347,22 @@ def load_real_dataset(path: str = REAL_CSV_PATH) -> pd.DataFrame:
             merged = pd.DataFrame()
         del best_chunks
 
-        # Compute delay = actual_unix ? scheduled_unix
+        # Compute delay inside merged (already indexed by _row_idx)
+        # Reindex surface columns we need onto merged index to avoid
+        # operating on the full 2M-row surface series
         if not merged.empty:
-            # ET midnight in unix seconds.
-            # pd.to_datetime(date_str, utc=False) returns datetime64[us] (microseconds)
-            # -> astype('int64') // 1_000_000 gives seconds (NOT // 1_000_000_000)
-            ET_OFFSET_SEC     = 4 * 3600  # EDT (April-October)
-            collected_et_date = collected_et.dt.strftime("%Y%m%d")
-            et_midnight_unix  = (
-                pd.to_datetime(collected_et_date.reindex(merged.index),
-                               format="%Y%m%d", utc=False)
-                .astype("int64") // 1_000_000   # microseconds -> seconds
-                + ET_OFFSET_SEC                  # shift midnight ET -> UTC
+            ET_OFFSET_SEC = 4 * 3600  # EDT (April-October)
+            # Pull collected_at for matched rows only (small subset)
+            ca_matched  = surface["collected_at"].reindex(merged.index)
+            et_matched  = ca_matched - pd.Timedelta(hours=4)
+            date_str    = et_matched.dt.strftime("%Y%m%d")
+            et_mid_unix = (
+                pd.to_datetime(date_str, format="%Y%m%d", utc=False)
+                .astype("int64") // 1_000_000 + ET_OFFSET_SEC
             )
-            merged["scheduled_unix"]  = et_midnight_unix + merged["scheduled_arrival_sec"]
-            merged["delay_sec_gtfs"]  = actual_unix.reindex(merged.index) - merged["scheduled_unix"]
-            # Sanity-clip: discard values outside +/-3 hours
+            au_matched  = surface["arrival_time_unix"].reindex(merged.index)
+            merged["scheduled_unix"] = et_mid_unix.values + merged["scheduled_arrival_sec"].values
+            merged["delay_sec_gtfs"] = au_matched.values - merged["scheduled_unix"]
             merged.loc[merged["delay_sec_gtfs"].abs() > 10800, "delay_sec_gtfs"] = np.nan
             delay_series = merged["delay_sec_gtfs"].reindex(surface.index)
         else:
